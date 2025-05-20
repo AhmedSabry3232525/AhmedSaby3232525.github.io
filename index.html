@@ -1,0 +1,69 @@
+<!-- ملف: index.html -->
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+  <meta charset="UTF-8">
+  <title>رفع فيديو إلى يوتيوب (فرونت إند فقط)</title>
+  <script src="https://apis.google.com/js/api.js"></script>
+</head>
+<body>
+  <h2>رفع فيديو إلى قناتك على يوتيوب</h2>
+  <button onclick="authenticate()">تسجيل الدخول بحساب Google</button>
+  <br><br>
+  <input type="file" id="videoFile" accept="video/*">
+  <input type="text" id="title" placeholder="عنوان الفيديو">
+  <button onclick="uploadVideo()">رفع الفيديو</button>
+  <div id="status"></div>
+
+  <script>
+    const CLIENT_ID = '74811689221-a88jf64qj5b3o0lin2rvcnc61s3mcpgo.apps.googleusercontent.com';
+    const SCOPES = 'https://www.googleapis.com/auth/youtube.upload';
+
+    function authenticate() {
+      gapi.load('client:auth2', () => {
+        gapi.auth2.init({ client_id: CLIENT_ID }).then(() => {
+          gapi.auth2.getAuthInstance().signIn({ scope: SCOPES })
+            .then(() => document.getElementById('status').innerText = 'تم تسجيل الدخول!');
+        });
+      });
+    }
+
+    function uploadVideo() {
+      const file = document.getElementById('videoFile').files[0];
+      const title = document.getElementById('title').value;
+      if (!file || !title) {
+        document.getElementById('status').innerText = 'يرجى اختيار فيديو وكتابة عنوان.';
+        return;
+      }
+
+      gapi.load('client', () => {
+        gapi.client.load('youtube', 'v3', () => {
+          const metadata = {
+            snippet: { title: title, description: 'تم الرفع من الموقع' },
+            status: { privacyStatus: 'private' }
+          };
+
+          const uploader = new MediaUploader({
+            baseUrl: 'https://www.googleapis.com/upload/youtube/v3/videos',
+            file: file,
+            token: gapi.auth.getToken().access_token,
+            metadata: metadata,
+            params: { part: Object.keys(metadata).join(',') },
+            onError: function(data) {
+              document.getElementById('status').innerText = 'خطأ: ' + data;
+            },
+            onComplete: function(data) {
+              document.getElementById('status').innerText = 'تم رفع الفيديو بنجاح!';
+            }
+          });
+          uploader.upload();
+        });
+      });
+    }
+
+    // MediaUploader.js يجب تضمين مكتبة رفع الوسائط من جوجل
+    // يمكنك تحميلها من: https://github.com/youtube/api-samples/blob/master/javascript/upload_video.js
+    // أو تضمين الكود هنا مباشرة
+  </script>
+</body>
+</html>
