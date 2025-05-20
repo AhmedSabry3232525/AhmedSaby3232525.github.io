@@ -4,28 +4,63 @@
 <head>
   <meta charset="UTF-8">
   <title>رفع فيديو إلى يوتيوب (فرونت إند فقط)</title>
-  <script src="https://apis.google.com/js/api.js"></script>
+  <script src="https://apis.google.com/js/api.js" onload="gapiLoaded()"></script>
 </head>
 <body>
   <h2>رفع فيديو إلى قناتك على يوتيوب</h2>
-  <button onclick="authenticate()">تسجيل الدخول بحساب Google</button>
+  <button id="loginBtn" onclick="authenticate()" disabled>تسجيل الدخول بحساب Google</button>
   <br><br>
   <input type="file" id="videoFile" accept="video/*">
   <input type="text" id="title" placeholder="عنوان الفيديو">
-  <button onclick="uploadVideo()">رفع الفيديو</button>
-  <div id="status"></div>
+  <button id="uploadBtn" onclick="uploadVideo()" disabled>رفع الفيديو</button>
+  <div id="status">جاري تحميل مكتبة Google...</div>
 
   <script>
     const CLIENT_ID = '74811689221-a88jf64qj5b3o0lin2rvcnc61s3mcpgo.apps.googleusercontent.com';
     const SCOPES = 'https://www.googleapis.com/auth/youtube.upload';
 
-    function authenticate() {
+    let gapiReady = false;
+    let gapiInited = false;
+
+    function gapiLoaded() {
+      document.getElementById('status').innerText = 'جاري تهيئة Google...';
+      gapiReady = true;
       gapi.load('client:auth2', () => {
-        gapi.auth2.init({ client_id: CLIENT_ID }).then(() => {
-          gapi.auth2.getAuthInstance().signIn({ scope: SCOPES })
-            .then(() => document.getElementById('status').innerText = 'تم تسجيل الدخول!');
+        gapi.client.init({
+          clientId: CLIENT_ID,
+          scope: SCOPES
+        }).then(() => {
+          gapiInited = true;
+          document.getElementById('loginBtn').disabled = false;
+          document.getElementById('status').innerText = '';
+        }).catch((e) => {
+          document.getElementById('status').innerText = 'فشل تحميل مكتبة Google Client.';
+          document.getElementById('loginBtn').disabled = false; // السماح بالمحاولة حتى لو فشل
         });
       });
+    }
+
+    // معالجة في حال لم يتم تحميل gapi لأي سبب
+    setTimeout(function() {
+      if (!gapiReady) {
+        document.getElementById('loginBtn').disabled = false;
+        document.getElementById('status').innerText = 'تعذر تحميل مكتبة Google. تحقق من اتصال الإنترنت أو أعد تحميل الصفحة.';
+      }
+    }, 7000);
+
+    function authenticate() {
+      if (!gapiReady || !gapiInited) {
+        document.getElementById('status').innerText = 'يرجى الانتظار حتى تكتمل تهيئة Google.';
+        return;
+      }
+      gapi.auth2.getAuthInstance().signIn()
+        .then(() => {
+          document.getElementById('status').innerText = 'تم تسجيل الدخول!';
+          document.getElementById('uploadBtn').disabled = false;
+        })
+        .catch((err) => {
+          document.getElementById('status').innerText = 'فشل تسجيل الدخول: ' + (err.error || err.details || err);
+        });
     }
 
     function uploadVideo() {
@@ -35,29 +70,31 @@
         document.getElementById('status').innerText = 'يرجى اختيار فيديو وكتابة عنوان.';
         return;
       }
+      // التأكد من تسجيل الدخول
+      if (!gapi.auth2 || !gapi.auth2.getAuthInstance().isSignedIn.get()) {
+        document.getElementById('status').innerText = 'يرجى تسجيل الدخول أولاً.';
+        return;
+      }
+      gapi.client.load('youtube', 'v3', () => {
+        const metadata = {
+          snippet: { title: title, description: 'تم الرفع من الموقع' },
+          status: { privacyStatus: 'private' }
+        };
 
-      gapi.load('client', () => {
-        gapi.client.load('youtube', 'v3', () => {
-          const metadata = {
-            snippet: { title: title, description: 'تم الرفع من الموقع' },
-            status: { privacyStatus: 'private' }
-          };
-
-          const uploader = new MediaUploader({
-            baseUrl: 'https://www.googleapis.com/upload/youtube/v3/videos',
-            file: file,
-            token: gapi.auth.getToken().access_token,
-            metadata: metadata,
-            params: { part: Object.keys(metadata).join(',') },
-            onError: function(data) {
-              document.getElementById('status').innerText = 'خطأ: ' + data;
-            },
-            onComplete: function(data) {
-              document.getElementById('status').innerText = 'تم رفع الفيديو بنجاح!';
-            }
-          });
-          uploader.upload();
+        const uploader = new MediaUploader({
+          baseUrl: 'https://www.googleapis.com/upload/youtube/v3/videos',
+          file: file,
+          token: gapi.auth.getToken().access_token,
+          metadata: metadata,
+          params: { part: Object.keys(metadata).join(',') },
+          onError: function(data) {
+            document.getElementById('status').innerText = 'خطأ: ' + data;
+          },
+          onComplete: function(data) {
+            document.getElementById('status').innerText = 'تم رفع الفيديو بنجاح!';
+          }
         });
+        uploader.upload();
       });
     }
 
