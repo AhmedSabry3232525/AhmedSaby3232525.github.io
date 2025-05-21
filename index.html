@@ -1,106 +1,199 @@
-<!-- ملف: index.html -->
 <!DOCTYPE html>
-<html lang="ar">
+<html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>رفع فيديو إلى يوتيوب (فرونت إند فقط)</title>
-  <script src="https://apis.google.com/js/api.js" onload="gapiLoaded()"></script>
+  <meta charset="UTF-8" />
+  <title>تسجيل الدخول / إنشاء حساب</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 2em; }
+    .box { max-width: 350px; margin: 2em auto; border: 1px solid #ccc; border-radius: 8px; padding: 2em; }
+    input, button { width: 100%; margin: 0.5em 0; padding: 0.5em; }
+    .msg { color: green; }
+    .err { color: red; }
+    .switch { color: #1976d2; cursor: pointer; text-align: center; margin-top: 1em; }
+    .switch:hover { text-decoration: underline; }
+  </style>
 </head>
 <body>
-  <h2>رفع فيديو إلى قناتك على يوتيوب</h2>
-  <button id="loginBtn" onclick="authenticate()" disabled>تسجيل الدخول بحساب Google</button>
-  <br><br>
-  <input type="file" id="videoFile" accept="video/*">
-  <input type="text" id="title" placeholder="عنوان الفيديو">
-  <button id="uploadBtn" onclick="uploadVideo()" disabled>رفع الفيديو</button>
-  <div id="status">جاري تحميل مكتبة Google...</div>
-
+  <div class="box">
+    <h2 id="form-title">تسجيل الدخول</h2>
+    <form id="auth-form">
+      <input type="email" id="email" placeholder="البريد الإلكتروني" required />
+      <input type="password" id="password" placeholder="كلمة المرور" required />
+      <div id="otp-section" style="display:none;">
+        <input type="text" id="otp" placeholder="رمز التحقق (OTP)" maxlength="6" />
+        <button type="button" id="verify-otp-btn">تأكيد البريد</button>
+      </div>
+      <button type="submit" id="main-btn">دخول</button>
+    </form>
+    <div id="msg" class="msg"></div>
+    <div id="err" class="err"></div>
+    <div class="switch" id="switch-to-signup">ليس لديك حساب؟ إنشاء حساب جديد</div>
+    <div class="switch" id="switch-to-login" style="display:none;">لديك حساب؟ تسجيل الدخول</div>
+    <div class="switch" id="forgot-pass">نسيت كلمة المرور؟</div>
+    <div class="switch" id="back-to-login" style="display:none;">رجوع لتسجيل الدخول</div>
+  </div>
   <script>
-    const CLIENT_ID = '74811689221-a88jf64qj5b3o0lin2rvcnc61s3mcpgo.apps.googleusercontent.com';
-    const SCOPES = 'https://www.googleapis.com/auth/youtube.upload';
+    const supabaseUrl = 'https://ixotpdhfnnnpeikgmwrm.supabase.co';
+    const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml4b3RwZGhmbm5ucGVpa2dtd3JtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc4NDc1OTIsImV4cCI6MjA2MzQyMzU5Mn0.S3W7B1EcNCTlIfWL82aboEFkMG3WkJK1T0Cy8HC0hIs';
+    const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
 
-    let gapiReady = false;
-    let gapiInited = false;
+    let mode = 'login'; // or 'signup' or 'forgot'
+    let pendingEmail = '';
+    let pendingPassword = '';
 
-    function gapiLoaded() {
-      document.getElementById('status').innerText = 'جاري تهيئة Google...';
-      gapiReady = true;
-      gapi.load('client:auth2', () => {
-        gapi.client.init({
-          clientId: CLIENT_ID,
-          scope: SCOPES
-        }).then(() => {
-          gapiInited = true;
-          document.getElementById('loginBtn').disabled = false;
-          document.getElementById('status').innerText = '';
-        }).catch((e) => {
-          document.getElementById('status').innerText = 'فشل تحميل مكتبة Google Client.';
-          document.getElementById('loginBtn').disabled = false; // السماح بالمحاولة حتى لو فشل
-        });
-      });
+    const form = document.getElementById('auth-form');
+    const email = document.getElementById('email');
+    const password = document.getElementById('password');
+    const otpSection = document.getElementById('otp-section');
+    const otpInput = document.getElementById('otp');
+    const verifyOtpBtn = document.getElementById('verify-otp-btn');
+    const msg = document.getElementById('msg');
+    const err = document.getElementById('err');
+    const mainBtn = document.getElementById('main-btn');
+    const formTitle = document.getElementById('form-title');
+    const switchToSignup = document.getElementById('switch-to-signup');
+    const switchToLogin = document.getElementById('switch-to-login');
+    const forgotPass = document.getElementById('forgot-pass');
+    const backToLogin = document.getElementById('back-to-login');
+
+    function setMode(newMode) {
+      mode = newMode;
+      msg.textContent = '';
+      err.textContent = '';
+      otpSection.style.display = 'none';
+      otpInput.value = '';
+      pendingEmail = '';
+      pendingPassword = '';
+      if (mode === 'login') {
+        formTitle.textContent = 'تسجيل الدخول';
+        mainBtn.textContent = 'دخول';
+        password.style.display = '';
+        mainBtn.style.display = '';
+        switchToSignup.style.display = '';
+        switchToLogin.style.display = 'none';
+        forgotPass.style.display = '';
+        backToLogin.style.display = 'none';
+      } else if (mode === 'signup') {
+        formTitle.textContent = 'إنشاء حساب جديد';
+        mainBtn.textContent = 'إنشاء حساب';
+        password.style.display = '';
+        mainBtn.style.display = '';
+        switchToSignup.style.display = 'none';
+        switchToLogin.style.display = '';
+        forgotPass.style.display = '';
+        backToLogin.style.display = 'none';
+      } else if (mode === 'forgot') {
+        formTitle.textContent = 'استعادة كلمة المرور';
+        password.style.display = 'none';
+        mainBtn.textContent = 'إرسال رابط الاستعادة';
+        mainBtn.style.display = '';
+        switchToSignup.style.display = 'none';
+        switchToLogin.style.display = 'none';
+        forgotPass.style.display = 'none';
+        backToLogin.style.display = '';
+      }
     }
 
-    // معالجة في حال لم يتم تحميل gapi لأي سبب
-    setTimeout(function() {
-      if (!gapiReady) {
-        document.getElementById('loginBtn').disabled = false;
-        document.getElementById('status').innerText = 'تعذر تحميل مكتبة Google. تحقق من اتصال الإنترنت أو أعد تحميل الصفحة.';
-      }
-    }, 7000);
+    switchToSignup.onclick = () => setMode('signup');
+    switchToLogin.onclick = () => setMode('login');
+    forgotPass.onclick = () => setMode('forgot');
+    backToLogin.onclick = () => setMode('login');
 
-    function authenticate() {
-      if (!gapiReady || !gapiInited) {
-        document.getElementById('status').innerText = 'يرجى الانتظار حتى تكتمل تهيئة Google.';
-        return;
-      }
-      gapi.auth2.getAuthInstance().signIn()
-        .then(() => {
-          document.getElementById('status').innerText = 'تم تسجيل الدخول!';
-          document.getElementById('uploadBtn').disabled = false;
-        })
-        .catch((err) => {
-          document.getElementById('status').innerText = 'فشل تسجيل الدخول: ' + (err.error || err.details || err);
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      msg.textContent = '';
+      err.textContent = '';
+      if (mode === 'login') {
+        mainBtn.disabled = true;
+        const { error, data } = await supabase.auth.signInWithPassword({
+          email: email.value,
+          password: password.value
         });
-    }
-
-    function uploadVideo() {
-      const file = document.getElementById('videoFile').files[0];
-      const title = document.getElementById('title').value;
-      if (!file || !title) {
-        document.getElementById('status').innerText = 'يرجى اختيار فيديو وكتابة عنوان.';
-        return;
-      }
-      // التأكد من تسجيل الدخول
-      if (!gapi.auth2 || !gapi.auth2.getAuthInstance().isSignedIn.get()) {
-        document.getElementById('status').innerText = 'يرجى تسجيل الدخول أولاً.';
-        return;
-      }
-      gapi.client.load('youtube', 'v3', () => {
-        const metadata = {
-          snippet: { title: title, description: 'تم الرفع من الموقع' },
-          status: { privacyStatus: 'private' }
-        };
-
-        const uploader = new MediaUploader({
-          baseUrl: 'https://www.googleapis.com/upload/youtube/v3/videos',
-          file: file,
-          token: gapi.auth.getToken().access_token,
-          metadata: metadata,
-          params: { part: Object.keys(metadata).join(',') },
-          onError: function(data) {
-            document.getElementById('status').innerText = 'خطأ: ' + data;
-          },
-          onComplete: function(data) {
-            document.getElementById('status').innerText = 'تم رفع الفيديو بنجاح!';
+        mainBtn.disabled = false;
+        if (error) {
+          err.textContent = error.message;
+        } else if (data.user && !data.user.email_confirmed_at) {
+          err.textContent = 'يجب تأكيد البريد الإلكتروني أولاً.';
+        } else {
+          msg.textContent = 'تم تسجيل الدخول بنجاح!';
+          setTimeout(() => { window.location.href = 'admin.html'; }, 1000);
+        }
+      } else if (mode === 'signup') {
+        mainBtn.disabled = true;
+        const { error } = await supabase.auth.signUp({
+          email: email.value,
+          password: password.value,
+          options: {
+            emailRedirectTo: null // لا نريد إعادة توجيه عبر الرابط
           }
         });
-        uploader.upload();
+        mainBtn.disabled = false;
+        if (error) {
+          err.textContent = error.message;
+        } else {
+          msg.textContent = 'تم إرسال رمز تحقق (OTP) إلى بريدك الإلكتروني. أدخل الرمز أدناه لتفعيل الحساب.';
+          otpSection.style.display = '';
+          pendingEmail = email.value;
+          pendingPassword = password.value;
+        }
+      } else if (mode === 'forgot') {
+        mainBtn.disabled = true;
+        const { error } = await supabase.auth.resetPasswordForEmail(email.value, {
+          redirectTo: window.location.origin + window.location.pathname
+        });
+        mainBtn.disabled = false;
+        if (error) {
+          err.textContent = error.message;
+        } else {
+          msg.textContent = 'تم إرسال رابط استعادة كلمة المرور إلى بريدك الإلكتروني.';
+        }
+      }
+    };
+
+    // تفعيل البريد عبر OTP
+    verifyOtpBtn.onclick = async () => {
+      err.textContent = '';
+      msg.textContent = '';
+      if (!pendingEmail || !pendingPassword || !otpInput.value) {
+        err.textContent = 'يرجى إدخال البريد وكلمة المرور ورمز التحقق.';
+        return;
+      }
+      verifyOtpBtn.disabled = true;
+      // Supabase: verify email OTP
+      const { data, error } = await supabase.auth.verifyOtp({
+        email: pendingEmail,
+        token: otpInput.value,
+        type: 'email'
       });
+      verifyOtpBtn.disabled = false;
+      if (error) {
+        err.textContent = error.message;
+      } else {
+        msg.textContent = 'تم تفعيل البريد بنجاح! سيتم تسجيل الدخول...';
+        // تسجيل الدخول تلقائياً بعد التفعيل
+        setTimeout(async () => {
+          const { error: loginErr, data: loginData } = await supabase.auth.signInWithPassword({
+            email: pendingEmail,
+            password: pendingPassword
+          });
+          if (loginErr) {
+            err.textContent = loginErr.message;
+          } else {
+            msg.textContent = 'تم تسجيل الدخول بنجاح!';
+            setTimeout(() => { window.location.href = 'admin.html'; }, 1000);
+          }
+        }, 500);
+      }
+    };
+
+    // If user is redirected here after password reset, show message
+    if (window.location.hash.includes('type=recovery')) {
+      setMode('forgot');
+      msg.textContent = 'يرجى إدخال كلمة مرور جديدة من رابط البريد الإلكتروني.';
     }
 
-    // MediaUploader.js يجب تضمين مكتبة رفع الوسائط من جوجل
-    // يمكنك تحميلها من: https://github.com/youtube/api-samples/blob/master/javascript/upload_video.js
-    // أو تضمين الكود هنا مباشرة
+    setMode('login');
   </script>
 </body>
 </html>
